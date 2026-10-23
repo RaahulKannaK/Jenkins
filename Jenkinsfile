@@ -80,43 +80,40 @@ pipeline {
             }
         }
 
+
         stage('Verify Deployed Application') {
             steps {
                 sh '''
                     set -eu
 
-                    URL="http://127.0.0.1:${LOCAL_PORT}"
-                    ok=0
+                    echo "Checking application health inside the container..."
 
-                    for attempt in $(seq 1 20); do
-                        if curl --fail --silent --show-error \
-                            "${URL}/health"; then
-                            ok=1
-                            break
-                        fi
+                    docker exec "${APP_CONTAINER}" python -c "
+import json
+import urllib.request
 
-                        echo "Application not ready yet (attempt ${attempt}/20)"
-                        sleep 3
-                    done
+base = 'http://127.0.0.1:5000'
 
-                    if [ "${ok}" -ne 1 ]; then
-                        echo "Health check failed. Container logs:"
-                        docker logs "${APP_CONTAINER}" || true
-                        exit 1
-                    fi
+health = json.load(
+    urllib.request.urlopen(base + '/health', timeout=5)
+)
+assert health.get('status') == 'healthy', health
 
-                    BODY="$(curl --fail --silent --show-error "${URL}/")"
+body = json.load(
+    urllib.request.urlopen(base + '/', timeout=5)
+)
+assert body.get('application') == 'Jenkins CI/CD Demo', body
+assert body.get('message') == 'Deployment successful!', body
 
-                    echo "Application response:"
-                    echo "${BODY}"
-
-                    echo "${BODY}" | grep -q 'Jenkins CI/CD Demo'
-                    echo "${BODY}" | grep -q 'Deployment successful!'
+print('Health check passed:', health)
+print('Application verification passed:', body)
+"
 
                     echo "Deployment verification passed."
                 '''
             }
         }
+
     }
 
     post {

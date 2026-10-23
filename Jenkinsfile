@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -26,6 +27,7 @@ pipeline {
         stage('Build and Install Test Dependencies') {
             steps {
                 sh '''
+                    set -eu
                     python3 --version
                     python3 -m venv .venv
                     . .venv/bin/activate
@@ -38,13 +40,15 @@ pipeline {
         stage('Automated Tests') {
             steps {
                 sh '''
+                    set -eu
                     . .venv/bin/activate
-                    pytest -v --junitxml=test-results.xml
+                    PYTHONPATH=. pytest -v --junitxml=test-results.xml
                 '''
             }
             post {
                 always {
-                    junit testResults: 'test-results.xml', allowEmptyResults: true
+                    junit testResults: 'test-results.xml',
+                          allowEmptyResults: true
                 }
             }
         }
@@ -52,6 +56,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
+                    set -eu
                     docker build --pull \
                       --tag "${APP_IMAGE}:${BUILD_NUMBER}" \
                       --tag "${APP_IMAGE}:latest" .
@@ -63,7 +68,9 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     docker rm -f "${APP_CONTAINER}" 2>/dev/null || true
+
                     docker run -d \
                       --name "${APP_CONTAINER}" \
                       --restart unless-stopped \
@@ -77,27 +84,35 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     URL="http://127.0.0.1:${LOCAL_PORT}"
                     ok=0
+
                     for attempt in $(seq 1 20); do
-                      if curl --fail --silent --show-error "${URL}/health"; then
-                        ok=1
-                        break
-                      fi
-                      echo "Application not ready yet (attempt ${attempt}/20)"
-                      sleep 3
+                        if curl --fail --silent --show-error \
+                            "${URL}/health"; then
+                            ok=1
+                            break
+                        fi
+
+                        echo "Application not ready yet (attempt ${attempt}/20)"
+                        sleep 3
                     done
 
                     if [ "${ok}" -ne 1 ]; then
-                      echo "Health check failed. Container logs:"
-                      docker logs "${APP_CONTAINER}" || true
-                      exit 1
+                        echo "Health check failed. Container logs:"
+                        docker logs "${APP_CONTAINER}" || true
+                        exit 1
                     fi
 
                     BODY="$(curl --fail --silent --show-error "${URL}/")"
+
+                    echo "Application response:"
                     echo "${BODY}"
+
                     echo "${BODY}" | grep -q 'Jenkins CI/CD Demo'
-                    echo "${BODY}" | grep -q 'Deployment successful'
+                    echo "${BODY}" | grep -q 'Deployment successful!'
+
                     echo "Deployment verification passed."
                 '''
             }
